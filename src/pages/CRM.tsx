@@ -1,24 +1,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import SEO from "@/components/SEO";
-import { supabase } from "@/integrations/supabase/client";
+import { listClients, createClient, getStoredUser } from "@/lib/invoicesmart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
+const PROJECTS_KEY = "as-projects";
+
 interface Client {
   id: string;
-  company_id: string;
+  user_id: string;
   name: string;
   email?: string | null;
   phone?: string | null;
-  address?: string | null;
-  notes?: string | null;
+  address?: Record<string, unknown> | null;
 }
 
 interface Project {
   id: string;
-  company_id: string;
+  companyId?: string | null;
   name: string;
   client?: string | null;
   location?: string | null;
@@ -27,57 +28,92 @@ interface Project {
 const CRM: React.FC = () => {
   const { toast } = useToast();
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [newClient, setNewClient] = useState({ name: "", email: "" });
   const [newProject, setNewProject] = useState({ name: "", client: "", location: "" });
 
   useEffect(() => {
-    const init = async () => {
-      const { data: companies } = await supabase.from("companies").select("id, name").order("created_at", { ascending: true });
-      const id = companies?.[0]?.id || null;
-      setCompanyId(id);
-    };
-    init();
+    const user = getStoredUser();
+    if (user) {
+      setCompanyId(user.id);
+      setCompanyName(user.company_name || null);
+    }
   }, []);
 
   useEffect(() => {
     if (!companyId) return;
     const load = async () => {
-      const { data: cs, error: ce } = await supabase.from("clients").select("*").eq("company_id", companyId).order("created_at", { ascending: false });
-      if (!ce && cs) setClients(cs);
-      const { data: ps, error: pe } = await supabase.from("projects").select("id, company_id, name, client, location").eq("company_id", companyId).order("created_at", { ascending: false });
-      if (!pe && ps) setProjects(ps as Project[]);
+      try {
+        const cs = await listClients();
+        setClients(cs as Client[]);
+      } catch (err) {
+        toast({
+          title: "Could not load clients",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+      }
+      try {
+        const raw = localStorage.getItem(PROJECTS_KEY);
+        const all: Project[] = raw ? JSON.parse(raw) : [];
+        setProjects(all.filter((p) => p.companyId === companyId));
+      } catch (err) {
+        toast({
+          title: "Could not load projects",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+        setProjects([]);
+      }
     };
     load();
-  }, [companyId]);
+  }, [companyId, toast]);
 
   const saveClient = async () => {
     if (!companyId || !newClient.name.trim()) return;
-    const { data, error } = await supabase.from("clients").insert({
-      company_id: companyId,
-      name: newClient.name.trim(),
-      email: newClient.email || null,
-    }).select("*").single();
-    if (error) return toast({ title: "Could not save client", description: error.message, variant: "destructive" });
-    setClients([data as Client, ...clients]);
-    setNewClient({ name: "", email: "" });
-    toast({ title: "Client added", description: "Client saved successfully" });
+    try {
+      const data = await createClient({
+        name: newClient.name.trim(),
+        email: newClient.email || null,
+      });
+      setClients([data as Client, ...clients]);
+      setNewClient({ name: "", email: "" });
+      toast({ title: "Client added", description: "Client saved successfully" });
+    } catch (err) {
+      toast({
+        title: "Could not save client",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   };
 
-  const saveProject = async () => {
+  const saveProject = () => {
     if (!companyId || !newProject.name.trim()) return;
-    const { data, error } = await supabase.from("projects").insert({
-      company_id: companyId,
+    const project: Project = {
+      id: crypto.randomUUID(),
+      companyId,
       name: newProject.name.trim(),
       client: newProject.client || null,
       location: newProject.location || null,
-      meta: {},
-    }).select("id, company_id, name, client, location").single();
-    if (error) return toast({ title: "Could not save project", description: error.message, variant: "destructive" });
-    setProjects([data as Project, ...projects]);
-    setNewProject({ name: "", client: "", location: "" });
-    toast({ title: "Project added", description: "Project saved successfully" });
+    };
+    try {
+      const raw = localStorage.getItem(PROJECTS_KEY);
+      const all: Project[] = raw ? JSON.parse(raw) : [];
+      const next = [project, ...all];
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
+      setProjects([project, ...projects]);
+      setNewProject({ name: "", client: "", location: "" });
+      toast({ title: "Project added", description: "Project saved successfully" });
+    } catch (err) {
+      toast({
+        title: "Could not save project",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   };
 
   const jsonLd = useMemo(() => ({

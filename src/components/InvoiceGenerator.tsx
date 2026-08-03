@@ -8,7 +8,7 @@ import { InvoiceForm } from './InvoiceForm';
 import { InvoiceTotals } from './InvoiceTotals';
 import { InvoicePreview } from './InvoicePreview';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from "@/integrations/supabase/client";
+import { listClients, createClient, createInvoice, nextInvoiceNumber } from "@/lib/invoicesmart";
 
 const itemSchema = z.object({
   description: z.string().min(1, 'Description is required'),
@@ -126,24 +126,54 @@ function handlePreview() {
 async function handleSaveBackend() {
   try {
     const settings = JSON.parse(localStorage.getItem('as-settings') || '{}');
-    const companyId = settings?.companyId;
-    if (!companyId) {
-      toast({ title: "Missing company", description: "Set a company ID in Settings first.", variant: "destructive" });
-      return;
+
+    // Ensure a client exists for the invoice client name.
+    const clients = await listClients();
+    let client = clients.find((c) => c.name === values.client.name);
+    if (!client) {
+      client = await createClient({
+        name: values.client.name,
+        email: values.client.email || null,
+        address: values.client.address || null,
+        phone: values.client.contact || null,
+      });
     }
-    const body = {
-      endpoint: "invoices",
-      companyId,
-      client: values.client,
-      number: values.invoice.number,
-      dueDate: values.invoice.dueDate,
-      items: values.items,
-      reverseVAT: values.vatMode === 'REVERSE_CHARGE_20',
-      retentionApplied: (values.retentionPercent || 0) > 0,
-    };
-    const { data, error } = await supabase.functions.invoke("accounting", { body });
-    if (error) throw error as any;
-    toast({ title: "Invoice saved", description: `ID: ${ (data as any)?.invoiceId || 'created' }` });
+
+    // Map VAT mode to tax rate.
+    let taxRate = 0;
+    const notes: (string | undefined)[] = [values.invoice.notes];
+    if (values.vatMode === 'STANDARD_20') {
+      taxRate = 20;
+    } else if (values.vatMode === 'REVERSE_CHARGE_20') {
+      taxRate = 0;
+      notes.push('Reverse charge VAT applies.');
+    } else if (values.vatMode === 'NO_VAT') {
+      taxRate = 0;
+    }
+
+    const lineItems = values.items.map((i) => ({
+      description: i.description,
+      quantity: i.quantity,
+      unit_price: i.unitPrice,
+    }));
+
+    const invoiceNumber = values.invoice.number || (await nextInvoiceNumber());
+
+    const invoice = await createInvoice({
+      client_id: client.id,
+      invoice_number: invoiceNumber,
+      issue_date: values.invoice.date,
+      due_date: values.invoice.dueDate || null,
+      notes: notes.filter(Boolean).join('\n'),
+      terms: values.invoice.reference || null,
+      tax_rate: taxRate,
+      discount_rate: values.discountPercent || 0,
+      retention_rate: values.retentionPercent || 0,
+      cis_rate: 0,
+      line_items: lineItems,
+    });
+
+    toast({ title: "Invoice saved", description: `Invoice saved — ${invoice.invoice_number}` });
   } catch (e: any) {
     console.error(e);
     toast({ title: "Failed to save invoice", description: e?.message || String(e), variant: "destructive" });

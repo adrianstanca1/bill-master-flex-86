@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { updateUserProfile } from "@/lib/invoicesmart";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import SEO from "@/components/SEO";
@@ -7,12 +8,16 @@ import SEO from "@/components/SEO";
 export default function Auth() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const location = useLocation() as any;
-  const redirectTo = (location.state?.from?.pathname as string) || "/dashboard";
+  const location = useLocation();
+  const fromPathname = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const redirectTo = fromPathname || "/dashboard";
 
   const [mode, setMode] = useState<"signin"|"signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -41,9 +46,19 @@ export default function Auth() {
         const { error, data } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/` },
+          options: {
+            emailRedirectTo: `${window.location.origin}/`,
+            data: { first_name: firstName, last_name: lastName, company_name: companyName },
+          },
         });
         if (error) throw error;
+        if (firstName || lastName || companyName) {
+          try {
+            await updateUserProfile({ first_name: firstName, last_name: lastName, company_name: companyName });
+          } catch (e) {
+            console.warn("Profile sync failed", e);
+          }
+        }
         toast({ title: "Account created", description: `Signed in as ${data?.user?.email || email}.` });
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -52,8 +67,9 @@ export default function Auth() {
         const onboarded = (()=>{ try { return !!(JSON.parse(localStorage.getItem("as-settings")||"{}")?.onboarded); } catch { return false; } })();
         navigate(onboarded ? redirectTo : "/setup", { replace: true });
       }
-    } catch (err: any) {
-      toast({ title: "Auth error", description: err?.message || "Failed", variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: "Auth error", description: message || "Failed", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -67,6 +83,16 @@ export default function Auth() {
         <form className="grid gap-3" onSubmit={submit}>
           <input className="input" type="email" placeholder="Email" value={email} onChange={(e)=>setEmail(e.target.value)} required />
           <input className="input" type="password" placeholder="Password" value={password} onChange={(e)=>setPassword(e.target.value)} required />
+          {mode === "signup" && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-text-secondary hover:text-foreground">Optional profile details</summary>
+              <div className="grid gap-3 mt-3">
+                <input className="input" placeholder="First name" value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
+                <input className="input" placeholder="Last name" value={lastName} onChange={(e)=>setLastName(e.target.value)} />
+                <input className="input" placeholder="Company name" value={companyName} onChange={(e)=>setCompanyName(e.target.value)} />
+              </div>
+            </details>
+          )}
           <button className="button" type="submit" disabled={loading}>{loading ? "Please wait…" : (mode === "signin" ? "Sign in" : "Sign up")}</button>
         </form>
         <div className="mt-4 text-sm">

@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from "react";
+import { updateUserProfile } from "@/lib/invoicesmart";
 import SEO from "@/components/SEO";
 
 const LS = "as-settings";
 
 type SettingsData = {
   companyId?: string;
+  companyName?: string;
+  vatNumber?: string;
+  phone?: string;
+  address?: string;
   country?: string;
   industry?: string;
   targetMargin?: number;
@@ -15,6 +20,10 @@ type SettingsData = {
 
 const defaults: SettingsData = {
   companyId: "",
+  companyName: "",
+  vatNumber: "",
+  phone: "",
+  address: "",
   country: "UK",
   industry: "construction",
   targetMargin: 20,
@@ -31,11 +40,23 @@ export default function Settings() {
     try {
       const raw = localStorage.getItem(LS);
       if (raw) setData({ ...defaults, ...(JSON.parse(raw) as SettingsData) });
-    } catch {}
+    } catch {
+      /* ignore malformed localStorage values */
+    }
   }, []);
 
-  function save() {
+  async function save() {
     localStorage.setItem(LS, JSON.stringify(data));
+    try {
+      await updateUserProfile({
+        company_name: data.companyName,
+        vat_number: data.vatNumber,
+        phone: data.phone,
+        address: data.address ? { raw: data.address } : null,
+      });
+    } catch (e) {
+      console.warn("Profile sync failed", e);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
@@ -50,6 +71,14 @@ export default function Settings() {
 
       <section className="card">
         <div className="grid md:grid-cols-2 gap-3">
+          <input className="input" placeholder="Company name" value={data.companyName}
+            onChange={(e) => setData({ ...data, companyName: e.target.value })} />
+          <input className="input" placeholder="VAT number" value={data.vatNumber}
+            onChange={(e) => setData({ ...data, vatNumber: e.target.value })} />
+          <input className="input" placeholder="Phone" value={data.phone}
+            onChange={(e) => setData({ ...data, phone: e.target.value })} />
+          <input className="input" placeholder="Address" value={data.address}
+            onChange={(e) => setData({ ...data, address: e.target.value })} />
           <input className="input" placeholder="Company ID" value={data.companyId}
             onChange={(e) => setData({ ...data, companyId: e.target.value })} />
           <input className="input" placeholder="Country" value={data.country}

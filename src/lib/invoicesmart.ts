@@ -132,3 +132,341 @@ export async function login(payload: LoginRequest): Promise<AuthResponse> {
 export async function getMe(): Promise<AuthUser> {
   return apiFetch<AuthUser>("/api/auth/me");
 }
+
+// ── Clients ────────────────────────────────────────────────────────────────
+
+export interface Client {
+  id: string;
+  user_id: string;
+  name: string;
+  email?: string | null;
+  company_name?: string | null;
+  vat_number?: string | null;
+  address?: Record<string, unknown> | null;
+  phone?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClientInput {
+  name: string;
+  email?: string | null;
+  company_name?: string | null;
+  vat_number?: string | null;
+  address?: Record<string, unknown> | string | null;
+  phone?: string | null;
+}
+
+export interface ClientListResponse {
+  data: Client[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listClients(): Promise<Client[]> {
+  const res = await apiFetch<ClientListResponse>("/api/clients");
+  return res.data || [];
+}
+
+export async function getClient(id: string): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`);
+}
+
+export async function createClient(input: ClientInput): Promise<Client> {
+  return apiFetch<Client>("/api/clients", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateClient(
+  id: string,
+  input: ClientInput
+): Promise<Client> {
+  return apiFetch<Client>(`/api/clients/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteClient(id: string): Promise<void> {
+  return apiFetch<void>(`/api/clients/${id}`, { method: "DELETE" });
+}
+
+// ── Invoices ───────────────────────────────────────────────────────────────
+
+export interface InvoiceLineItem {
+  id?: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount?: number;
+  sort_order?: number;
+}
+
+export interface Invoice {
+  id: string;
+  user_id: string;
+  client_id?: string | null;
+  invoice_number: string;
+  status: "draft" | "sent" | "partial" | "paid";
+  issue_date?: string | null;
+  due_date?: string | null;
+  sent_at?: string | null;
+  paid_at?: string | null;
+  subtotal: number | string;
+  tax_rate: number | string;
+  tax_amount: number | string;
+  discount_rate: number | string;
+  discount_amount: number | string;
+  retention_rate: number | string;
+  retention_amount: number | string;
+  cis_rate: number | string;
+  cis_amount: number | string;
+  total_amount: number | string;
+  amount_paid: number | string;
+  amount_due: number | string;
+  notes?: string | null;
+  terms?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  line_items?: InvoiceLineItem[];
+  transactions?: Transaction[];
+}
+
+export interface InvoiceInput {
+  client_id?: string | null;
+  invoice_number?: string;
+  status?: "draft" | "sent" | "partial" | "paid";
+  issue_date?: string | null;
+  due_date?: string | null;
+  notes?: string | null;
+  terms?: string | null;
+  tax_rate?: number;
+  discount_rate?: number;
+  retention_rate?: number;
+  cis_rate?: number;
+  line_items?: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+  }>;
+}
+
+export interface InvoiceListResponse {
+  data: Invoice[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listInvoices(status?: string): Promise<Invoice[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await apiFetch<InvoiceListResponse>(`/api/invoices${qs}`);
+  return res.data || [];
+}
+
+export async function getInvoice(id: string): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/invoices/${id}`);
+}
+
+export async function createInvoice(input: InvoiceInput): Promise<Invoice> {
+  return apiFetch<Invoice>("/api/invoices", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateInvoice(
+  id: string,
+  input: InvoiceInput
+): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/invoices/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteInvoice(id: string): Promise<void> {
+  return apiFetch<void>(`/api/invoices/${id}`, { method: "DELETE" });
+}
+
+export async function sendInvoice(id: string): Promise<{ success: boolean; status: string }> {
+  return apiFetch<{ success: boolean; status: string }>(`/api/invoices/${id}/send`, {
+    method: "POST",
+  });
+}
+
+export async function markInvoicePaid(id: string): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/invoices/${id}/paid`, { method: "PATCH" });
+}
+
+export async function nextInvoiceNumber(
+  prefix = "INV",
+  autoIncrement = true
+): Promise<string> {
+  const qs = `?prefix=${encodeURIComponent(prefix)}&autoIncrement=${autoIncrement}`;
+  const res = await apiFetch<{ invoiceNumber: string }>(`/api/invoices/next/number${qs}`);
+  return res.invoiceNumber;
+}
+
+export async function recordPayment(
+  invoiceId: string,
+  amount: number,
+  payment_method?: string,
+  reference?: string,
+  notes?: string
+): Promise<unknown> {
+  return apiFetch<unknown>(`/api/invoices/${invoiceId}/payments`, {
+    method: "POST",
+    body: JSON.stringify({ amount, payment_method, reference, notes }),
+  });
+}
+
+// ── Transactions ────────────────────────────────────────────────────────────
+
+export interface Transaction {
+  id: string;
+  user_id: string;
+  invoice_id?: string | null;
+  type: "expense" | "payment";
+  amount: number | string;
+  transaction_date?: string;
+  description?: string | null;
+  payment_method?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
+export interface TransactionInput {
+  invoice_id?: string | null;
+  type: "expense" | "payment";
+  amount: number;
+  transaction_date?: string;
+  description?: string;
+  payment_method?: string;
+  reference?: string;
+  notes?: string;
+}
+
+export interface TransactionListResponse {
+  data: Transaction[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listTransactions(type?: string): Promise<Transaction[]> {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : "";
+  const res = await apiFetch<TransactionListResponse>(`/api/transactions${qs}`);
+  return res.data || [];
+}
+
+export async function createTransaction(input: TransactionInput): Promise<Transaction> {
+  return apiFetch<Transaction>("/api/transactions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+
+export async function getDashboardReport(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/reports/dashboard");
+}
+
+export async function getRevenueTrend(
+  start?: string,
+  end?: string
+): Promise<Record<string, unknown>> {
+  const qs = start && end ? `?start=${start}&end=${end}` : "";
+  return apiFetch<Record<string, unknown>>(`/api/reports/revenue-trend${qs}`);
+}
+
+export async function getProfitLoss(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/reports/profit-loss");
+}
+
+export async function getReportsSummary(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/reports/summary");
+}
+
+// ── Settings / Profile ─────────────────────────────────────────────────────
+
+export interface UserSettings {
+  companyName?: string;
+  vatNumber?: string;
+  address?: Record<string, unknown> | string;
+  phone?: string;
+  country?: string;
+  industry?: string;
+  targetMargin?: number;
+  vatScheme?: "standard" | "flat-rate" | "cash-accounting";
+  reverseCharge?: boolean;
+  cis?: boolean;
+}
+
+export async function getSettings(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/settings");
+}
+
+export async function updateSettings(settings: Record<string, unknown>): Promise<void> {
+  return apiFetch<void>("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function updateUserProfile(user: Partial<AuthUser>): Promise<AuthUser> {
+  // InvoiceSmart doesn't have a user profile update endpoint yet, so we mirror
+  // settings into the backend and refresh the stored user.
+  const current = getStoredUser();
+  if (!current) throw new Error("Not authenticated");
+  const next = { ...current, ...user };
+  setStoredUser(next);
+  return next;
+}
+
+// ── AI ─────────────────────────────────────────────────────────────────────
+
+export async function aiChat(
+  message: string,
+  messages?: { role: string; content: string }[]
+): Promise<{ reply?: string }> {
+  return apiFetch<{ reply?: string }>("/api/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, messages }),
+  });
+}
+
+export async function aiGenerateInvoice(
+  description: string
+): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/ai/generate-invoice", {
+    method: "POST",
+    body: JSON.stringify({ description }),
+  });
+}
+
+export async function aiWhoOwesMe(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/ai/who-owes-me");
+}
+
+export async function aiTaxAdvice(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/ai/tax-advice");
+}
+
+export async function aiSummarizePL(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>("/api/ai/summarize-pl");
+}

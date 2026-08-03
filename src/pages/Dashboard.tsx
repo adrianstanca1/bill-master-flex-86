@@ -7,12 +7,14 @@ import FunctionDiagnostics from "@/components/FunctionDiagnostics";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { listInvoices, listClients, markInvoicePaid, Invoice } from "@/lib/invoicesmart";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { Link } from "react-router-dom";
 import SEO from "@/components/SEO";
 import CISCalculator from "@/components/CISCalculator";
 type InvoiceRow = {
+  id?: string;
   number: string;
   client: string;
   total: number;
@@ -60,14 +62,65 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-    const data: InvoiceRow[] = readInvoices();
-    const updated: InvoiceRow[] = data.map((r) => ({
-      ...r,
-      status: (isOverdue(r) && r.status !== "paid" ? "overdue" : r.status) as InvoiceRow["status"],
-    }));
-    setRows(updated);
-    writeInvoices(updated);
-  }, []);
+    let cancelled = false;
+    async function load() {
+      try {
+        const [invoices, clients] = await Promise.all([listInvoices(), listClients()]);
+        if (cancelled) return;
+        const clientMap = new Map(clients.map((c) => [c.id, c.name]));
+        const today = new Date();
+        const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+        const serverRows: InvoiceRow[] = invoices.map((inv: Invoice) => {
+          let status: InvoiceRow["status"] = "draft";
+          if (inv.status === "paid") {
+            status = "paid";
+          } else if (inv.due_date && new Date(inv.due_date) < todayDate) {
+            status = "overdue";
+          } else if (inv.status === "sent") {
+            status = "sent";
+          }
+          return {
+            id: inv.id,
+            number: inv.invoice_number,
+            client: clientMap.get(inv.client_id || "") || "Unknown",
+            total: Number(inv.total_amount) || 0,
+            dueDate: inv.due_date || undefined,
+            status,
+          };
+        });
+
+        const localRows = readInvoices();
+        const byNumber = new Map<string, InvoiceRow>();
+        for (const r of localRows) byNumber.set(r.number, r);
+        for (const r of serverRows) byNumber.set(r.number, r); // server wins
+
+        const merged = Array.from(byNumber.values()).map((r) => ({
+          ...r,
+          status: (r.status === "paid" ? "paid" : isOverdue(r) ? "overdue" : r.status) as InvoiceRow["status"],
+        }));
+
+        setRows(merged);
+        writeInvoices(merged);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast?.({
+          title: "Load failed",
+          description: message || "Could not load invoices from the server.",
+          variant: "destructive",
+        });
+        const localRows = readInvoices().map((r) => ({
+          ...r,
+          status: (r.status === "paid" ? "paid" : isOverdue(r) ? "overdue" : r.status) as InvoiceRow["status"],
+        }));
+        setRows(localRows);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   const kpi = useMemo(() => {
     const outstanding = rows
@@ -98,13 +151,34 @@ export default function Dashboard() {
     setNewRow({ number: "", client: "", total: 0, dueDate: "", status: "sent" });
   }
   function removeRow(idx: number) {
-    const updated = rows.slice(0, idx).concat(rows.slice(idx + 1));
+    const row = filteredRows[idx];
+    if (!row) return;
+    const targetIdx = rows.findIndex((r) => r.number === row.number);
+    if (targetIdx === -1) return;
+    const updated = rows.slice(0, targetIdx).concat(rows.slice(targetIdx + 1));
     setRows(updated);
     writeInvoices(updated);
   }
-  function markPaid(idx: number) {
+  async function markPaid(idx: number) {
+    const row = filteredRows[idx];
+    if (!row) return;
+    if (row.id) {
+      try {
+        await markInvoicePaid(row.id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not mark invoice as paid on the server.";
+        toast?.({
+          title: "Update failed",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const targetIdx = rows.findIndex((r) => r.number === row.number);
+    if (targetIdx === -1) return;
     const updated: InvoiceRow[] = rows.map((r, i) =>
-      i === idx ? { ...r, status: "paid" as InvoiceRow["status"] } : r
+      i === targetIdx ? { ...r, status: "paid" as InvoiceRow["status"] } : r
     );
     setRows(updated);
     writeInvoices(updated);
@@ -150,7 +224,7 @@ export default function Dashboard() {
   }
 
   function openReminder(i: number) {
-    const r = rows[i];
+    const r = filteredRows[i];
     if (!r) return;
     const daysLate = isOverdue(r) && r.dueDate
       ? Math.max(0, Math.ceil((Date.now() - new Date(r.dueDate).getTime()) / 86400000))
@@ -171,8 +245,9 @@ async function generateReminder() {
     if (error) throw error as any;
     const reply = (data as any)?.reply || (data as any)?.message || JSON.stringify(data);
     setReminderMsg(reply);
-  } catch (e: any) {
-    toast?.({ title: "Generate failed", description: e?.message || "Error", variant: "destructive" });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error";
+    toast?.({ title: "Generate failed", description: message, variant: "destructive" });
   } finally {
     setGenerating(false);
   }

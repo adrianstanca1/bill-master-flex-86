@@ -1,93 +1,135 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import SEO from "@/components/SEO";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  listInvoices,
+  createInvoice,
+  sendInvoice,
+  updateInvoice,
+  getStoredUser,
+  type ApiError,
+  type Invoice,
+} from "@/lib/invoicesmart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
-interface Quote {
+interface QuoteView {
   id: string;
-  company_id: string;
   title: string;
-  items: any[];
   total: number;
-  status: string;
-  created_at: string;
+  createdAt: string;
+  invoiceNumber: string;
+}
+
+function mapInvoiceToQuote(invoice: Invoice): QuoteView {
+  const title =
+    invoice.notes ||
+    invoice.line_items?.[0]?.description ||
+    "Untitled quote";
+  return {
+    id: invoice.id,
+    title,
+    total: Number(invoice.total_amount || 0),
+    createdAt: invoice.created_at || "",
+    invoiceNumber: invoice.invoice_number,
+  };
 }
 
 const Quotes: React.FC = () => {
   const { toast } = useToast();
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const [quotes, setQuotes] = useState<QuoteView[]>([]);
   const [newTitle, setNewTitle] = useState("");
+
+  const loadQuotes = useCallback(async () => {
+    try {
+      const invoices = await listInvoices("draft");
+      setQuotes(invoices.map(mapInvoiceToQuote));
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Failed to load quotes",
+        description: apiErr.message || "Could not fetch draft invoices",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
 
   useEffect(() => {
     const init = async () => {
-      const { data: companies } = await supabase.from("companies").select("id, name").order("created_at", { ascending: true });
-      const id = companies?.[0]?.id || null;
-      setCompanyId(id);
+      const user = getStoredUser();
+      setCompanyName(user?.company_name || null);
+      await loadQuotes();
     };
     init();
-  }, []);
-
-  const loadQuotes = async (company: string) => {
-    const { data, error } = await supabase
-      .from("quotes")
-      .select("*")
-      .eq("company_id", company)
-      .order("created_at", { ascending: false });
-    if (error) {
-      toast({ title: "Failed to load quotes", description: error.message, variant: "destructive" });
-    } else {
-      setQuotes(data as Quote[]);
-    }
-  };
-
-  useEffect(() => {
-    if (companyId) loadQuotes(companyId);
-  }, [companyId]);
+  }, [loadQuotes]);
 
   const addQuote = async () => {
-    if (!companyId || !newTitle.trim()) return;
-    const { error } = await supabase.from("quotes").insert({
-      company_id: companyId,
-      title: newTitle.trim(),
-      items: [],
-      total: 0,
-      status: "draft",
-    });
-    if (error) return toast({ title: "Could not create quote", description: error.message, variant: "destructive" });
-    setNewTitle("");
-    toast({ title: "Quote created" });
-    await loadQuotes(companyId);
-  };
-
-  const convertToInvoice = async (q: Quote) => {
-    const number = window.prompt("Invoice number? (e.g. INV-1001)") || undefined;
-    const dueDate = window.prompt("Invoice due date (YYYY-MM-DD)?") || undefined;
-    const client = window.prompt("Client name (optional)") || undefined;
+    if (!companyName || !newTitle.trim()) return;
+    const title = newTitle.trim();
     try {
-      const { data, error } = await supabase.functions.invoke("quotes", {
-        body: { quoteId: q.id, number, dueDate, client },
+      await createInvoice({
+        status: "draft",
+        notes: title,
+        line_items: [{ description: title, quantity: 1, unit_price: 0 }],
       });
-      if (error) throw new Error(error.message);
-      toast({ title: "Converted to invoice", description: data?.invoice?.number || "Invoice created" });
-    } catch (e: any) {
-      toast({ title: "Conversion failed", description: e.message || String(e), variant: "destructive" });
+      setNewTitle("");
+      toast({ title: "Quote created" });
+      await loadQuotes();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Could not create quote",
+        description: apiErr.message || "Request failed",
+        variant: "destructive",
+      });
     }
   };
 
-  const jsonLd = useMemo(() => ({
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    name: "Quotes",
-    description: "Create quotes and convert them to invoices",
-  }), []);
+  const convertToInvoice = async (q: QuoteView) => {
+    const number = window.prompt("Invoice number? (e.g. INV-1001)") || undefined;
+    const dueDate = window.prompt("Invoice due date (YYYY-MM-DD)?") || undefined;
+    try {
+      if (number || dueDate) {
+        await updateInvoice(q.id, {
+          invoice_number: number,
+          due_date: dueDate,
+        });
+      }
+      await sendInvoice(q.id);
+      toast({
+        title: "Converted to invoice",
+        description: q.invoiceNumber,
+      });
+      await loadQuotes();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Conversion failed",
+        description: apiErr.message || "Could not send invoice",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const jsonLd = useMemo(
+    () => ({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: "Quotes",
+      description: "Create quotes and convert them to invoices",
+    }),
+    []
+  );
 
   return (
     <main>
-      <SEO title="Quotes | UK Construction" description="Create quotes and convert them to invoices." jsonLd={jsonLd} />
+      <SEO
+        title="Quotes | UK Construction"
+        description="Create quotes and convert them to invoices."
+        jsonLd={jsonLd}
+      />
       <h1 className="sr-only">Quotes</h1>
       <Card>
         <CardHeader>
@@ -95,22 +137,41 @@ const Quotes: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
-            <Input placeholder="Quote title" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-            <Button onClick={addQuote} disabled={!companyId}>New Quote</Button>
+            <Input
+              placeholder="Quote title"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+            />
+            <Button onClick={addQuote} disabled={!companyName}>
+              New Quote
+            </Button>
           </div>
           <ul className="space-y-2">
             {quotes.map((q) => (
-              <li key={q.id} className="flex items-center justify-between border rounded-md p-3">
+              <li
+                key={q.id}
+                className="flex items-center justify-between border rounded-md p-3"
+              >
                 <div>
                   <div className="font-medium">{q.title}</div>
-                  <div className="text-sm text-muted-foreground">Total £{q.total?.toFixed(2) ?? "0.00"} • {new Date(q.created_at).toLocaleDateString()}</div>
+                  <div className="text-sm text-muted-foreground">
+                    Total £{q.total.toFixed(2)} •{" "}
+                    {new Date(q.createdAt).toLocaleDateString()}
+                  </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => convertToInvoice(q)}>Convert to Invoice</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => convertToInvoice(q)}
+                  >
+                    Convert to Invoice
+                  </Button>
                 </div>
               </li>
             ))}
-            {quotes.length === 0 && <div className="text-sm text-muted-foreground">No quotes yet.</div>}
+            {quotes.length === 0 && (
+              <div className="text-sm text-muted-foreground">No quotes yet.</div>
+            )}
           </ul>
         </CardContent>
       </Card>

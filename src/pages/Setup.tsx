@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { applyUserTheme, loadTheme, saveTheme, ThemePreset, ThemeSettings } from "@/lib/theme";
+import { updateUserProfile } from "@/lib/invoicesmart";
 import SEO from "@/components/SEO";
 
 const LS = "as-settings";
@@ -7,6 +8,8 @@ const LS = "as-settings";
 type SettingsData = {
   companyId?: string;
   companyName?: string;
+  firstName?: string;
+  lastName?: string;
   country?: string;
   industry?: string;
   targetMargin?: number;
@@ -17,6 +20,7 @@ type SettingsData = {
   website?: string;
   phone?: string;
   contactEmail?: string;
+  vatNumber?: string;
   logoDataUrl?: string;
   onboarded?: boolean;
 };
@@ -24,6 +28,8 @@ type SettingsData = {
 const defaults: SettingsData = {
   companyId: "",
   companyName: "",
+  firstName: "",
+  lastName: "",
   country: "UK",
   industry: "construction",
   targetMargin: 20,
@@ -43,7 +49,9 @@ export default function Setup() {
     try {
       const raw = localStorage.getItem(LS);
       if (raw) setData({ ...defaults, ...(JSON.parse(raw) as SettingsData) });
-    } catch {}
+    } catch {
+      /* ignore malformed localStorage values */
+    }
   }, []);
 
   const presets: { key: ThemePreset; name: string }[] = useMemo(
@@ -67,12 +75,25 @@ export default function Setup() {
     reader.readAsDataURL(file);
   }
 
-  function save() {
+  async function save() {
     setSaving(true);
     const toSave = { ...data, onboarded: true };
     localStorage.setItem(LS, JSON.stringify(toSave));
     saveTheme(theme);
     applyUserTheme(theme);
+    try {
+      await updateUserProfile({
+        first_name: data.firstName,
+        last_name: data.lastName,
+        company_name: data.companyName,
+        vat_number: data.vatNumber,
+        phone: data.phone,
+        address: data.address ? { raw: data.address } : null,
+      });
+    } catch (e) {
+      // Non-fatal: local settings are already saved.
+      console.warn("Profile sync failed", e);
+    }
     setTimeout(() => setSaving(false), 600);
   }
 
@@ -87,8 +108,11 @@ export default function Setup() {
       <section className="card">
         <h2 className="text-lg font-semibold mb-3">Company details</h2>
         <div className="grid md:grid-cols-2 gap-3">
+          <input className="input" placeholder="First name" value={data.firstName||""} onChange={(e)=>setData({ ...data, firstName: e.target.value })} />
+          <input className="input" placeholder="Last name" value={data.lastName||""} onChange={(e)=>setData({ ...data, lastName: e.target.value })} />
           <input className="input" placeholder="Company name" value={data.companyName||""} onChange={(e)=>setData({ ...data, companyName: e.target.value })} />
           <input className="input" placeholder="Company ID" value={data.companyId||""} onChange={(e)=>setData({ ...data, companyId: e.target.value })} />
+          <input className="input" placeholder="VAT number" value={data.vatNumber||""} onChange={(e)=>setData({ ...data, vatNumber: e.target.value })} />
           <input className="input" placeholder="Country" value={data.country||""} onChange={(e)=>setData({ ...data, country: e.target.value })} />
           <input className="input" placeholder="Industry" value={data.industry||""} onChange={(e)=>setData({ ...data, industry: e.target.value })} />
           <input className="input md:col-span-2" placeholder="Address" value={data.address||""} onChange={(e)=>setData({ ...data, address: e.target.value })} />

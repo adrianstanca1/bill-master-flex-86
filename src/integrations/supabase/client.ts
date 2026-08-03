@@ -65,12 +65,22 @@ const auth = {
   async signUp({
     email,
     password,
+    options,
   }: {
     email: string;
     password: string;
-    options?: { emailRedirectTo?: string };
+    options?: {
+      emailRedirectTo?: string;
+      data?: { first_name?: string; last_name?: string; company_name?: string };
+    };
   }) {
-    const res = await register({ email, password });
+    const res = await register({
+      email,
+      password,
+      first_name: options?.data?.first_name,
+      last_name: options?.data?.last_name,
+      company_name: options?.data?.company_name,
+    });
     setToken(res.token);
     setStoredUser(res.user);
     emit("SIGNED_IN", buildSession());
