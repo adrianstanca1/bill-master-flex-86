@@ -1,0 +1,52 @@
+# invoice-builder-web — standalone React frontend
+# Primary: https://invoice-builder.cortexbuildpro.com (requires DNS A record)
+# Fallback: https://invoice-builder.srv1262179.hstgr.cloud (wildcard DNS, live now)
+# Auth + invoices are served by the InvoiceSmart API on this VPS.
+
+services:
+  invoice-builder-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_INVOICESMART_API_URL: ${VITE_INVOICESMART_API_URL:-https://api.invoicesmart.cortexbuildpro.com}
+    image: invoice-builder-web:latest
+    container_name: invoice-builder-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      traefik_web:
+        ipv4_address: 172.16.3.21
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_web"
+
+      # Branded domain — becomes active once the A record is added at Hostinger.
+      - "traefik.http.routers.invoice-builder-web-branded.entrypoints=websecure"
+      - "traefik.http.routers.invoice-builder-web-branded.rule=Host(`invoice-builder.cortexbuildpro.com`)"
+      - "traefik.http.routers.invoice-builder-web-branded.tls=true"
+      - "traefik.http.routers.invoice-builder-web-branded.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.invoice-builder-web-branded.service=invoice-builder-web"
+
+      # Wildcard fallback — works immediately while DNS propagates for the branded domain.
+      - "traefik.http.routers.invoice-builder-web-fallback.entrypoints=websecure"
+      - "traefik.http.routers.invoice-builder-web-fallback.rule=Host(`invoice-builder.srv1262179.hstgr.cloud`)"
+      - "traefik.http.routers.invoice-builder-web-fallback.tls=true"
+      - "traefik.http.routers.invoice-builder-web-fallback.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.invoice-builder-web-fallback.service=invoice-builder-web"
+
+      - "traefik.http.services.invoice-builder-web.loadbalancer.server.port=3000"
+
+networks:
+  traefik_web:
+    external: true

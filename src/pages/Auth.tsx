@@ -38,13 +38,13 @@ export default function Auth() {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
+        const { error, data } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${window.location.origin}/` },
         });
         if (error) throw error;
-        toast({ title: "Check your email", description: "Confirm to complete sign up." });
+        toast({ title: "Account created", description: `Signed in as ${data?.user?.email || email}.` });
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
