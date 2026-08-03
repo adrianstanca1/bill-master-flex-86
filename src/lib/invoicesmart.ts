@@ -429,11 +429,12 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
 }
 
 export async function updateUserProfile(user: Partial<AuthUser>): Promise<AuthUser> {
-  // InvoiceSmart doesn't have a user profile update endpoint yet, so we mirror
-  // settings into the backend and refresh the stored user.
   const current = getStoredUser();
   if (!current) throw new Error("Not authenticated");
-  const next = { ...current, ...user };
+  const next = await apiFetch<AuthUser>("/api/auth/me", {
+    method: "PUT",
+    body: JSON.stringify(user),
+  });
   setStoredUser(next);
   return next;
 }
