@@ -7,7 +7,7 @@ import FunctionDiagnostics from "@/components/FunctionDiagnostics";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { listInvoices, listClients, markInvoicePaid, Invoice } from "@/lib/invoicesmart";
+import { listInvoices, listClients, markInvoicePaid, aiChat, Invoice } from "@/lib/invoicesmart";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { Link } from "react-router-dom";
@@ -241,9 +241,7 @@ async function generateReminder() {
     setGenerating(true);
     const r = rows[reminderIdx];
     const message = `Draft a concise, polite payment reminder email in British English for the construction trade. Include a subject and email body. Invoice ${r.number}, client ${r.client}, amount £${(r.total || 0).toFixed(2)}, ${r.dueDate ? `due on ${r.dueDate}` : "no due date"}.`;
-    const { data, error } = await supabase.functions.invoke("advisor", { body: { message, context: { type: "payment-reminder" } } });
-    if (error) throw error as any;
-    const reply = (data as any)?.reply || (data as any)?.message || JSON.stringify(data);
+    const { reply } = await aiChat(message);
     setReminderMsg(reply);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error";

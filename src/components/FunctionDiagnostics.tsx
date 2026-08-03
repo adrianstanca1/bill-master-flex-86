@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice, aiSummarizePL } from "@/lib/invoicesmart";
 
  type Result = { name: string; status: "OK" | "FAIL" | "SKIP"; detail?: string };
 
@@ -13,25 +13,25 @@ export default function FunctionDiagnostics() {
     const settings = (() => { try { return JSON.parse(localStorage.getItem("as-settings")||"{}"); } catch { return {}; } })();
     const companyId = settings?.companyId || "";
 
-    async function call(name: string, fn: () => Promise<any>): Promise<Result> {
+    async function call(name: string, fn: () => Promise<Record<string, unknown> | { reply: string }>): Promise<Result> {
       try {
-        const { data, error } = await fn();
-        if (error) throw error;
+        const data = await fn();
         return { name, status: "OK", detail: JSON.stringify(data).slice(0, 180) };
-      } catch (e: any) {
-        return { name, status: "FAIL", detail: e?.message || "error" };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { name, status: "FAIL", detail: message || "error" };
       }
     }
 
     const tasks: Promise<Result>[] = [
-      call("agent", () => supabase.functions.invoke("agent", { body: { message: "Health check", invoices: [] } })),
-      call("advisor", () => supabase.functions.invoke("advisor", { body: { message: "Health check", context: {} } })),
-      call("quote-bot", () => supabase.functions.invoke("quote-bot", { body: { title: "Test", withMaterials: true, targetMargin: 0.2 } })),
-      call("tax-bot", () => supabase.functions.invoke("tax-bot", { body: { turnover12m: 10000, vatScheme: "standard", reverseCharge: true, cis: true } })),
-      call("tender-search", () => supabase.functions.invoke("tender-search", { body: { query: "roofing", country: settings?.country || "UK", industry: settings?.industry || "construction" } })),
-      call("rams", () => supabase.functions.invoke("rams", { body: { project: { name: "Health Check", location: "London", date: "2025-01-01", description: "Test", tasks: ["Setup"] } } })),
-      call("tenderbot", () => supabase.functions.invoke("tenderbot", { body: { url: "https://example.com", mode: "scrape", limit: 5 } })),
-      companyId ? call("smartops", () => supabase.functions.invoke("smartops", { body: { companyId } })) : Promise.resolve({ name: "smartops", status: "SKIP", detail: "No companyId in Settings" }),
+      call("aiChat", () => aiChat("Health check")),
+      call("aiGenerateInvoice", () => aiGenerateInvoice("Small kitchen refurb for a domestic client")),
+      call("aiTaxAdvice", () => aiTaxAdvice()),
+      call("aiWhoOwesMe", () => aiWhoOwesMe()),
+      call("aiSummarizePL", () => aiSummarizePL()),
+      call("rams", () => aiChat("Generate a brief RAMS for a kitchen refurb project in London.")),
+      call("tenderbot", () => aiChat("Extract tender opportunities from https://example.com/tenders for UK construction.")),
+      companyId ? call("smartops", () => aiChat(`Run a SmartOps scan for company ${companyId}.`)) : Promise.resolve({ name: "smartops", status: "SKIP", detail: "No companyId in Settings" }),
     ];
 
     const res = await Promise.all(tasks);
@@ -41,19 +41,16 @@ export default function FunctionDiagnostics() {
 
   function getSuggestion(name: string, detail?: string) {
     const d = (detail || '').toLowerCase();
-    if (["agent","advisor","quote-bot","tax-bot","rams"].includes(name) && (d.includes("incorrect api key") || d.includes("openai") || d.includes("401"))) {
-      return "Set a valid OPENAI_API_KEY in Supabase and try again.";
-    }
-    if (name === "tenderbot" && (d.includes("unauthorized") || d.includes("invalid token") || d.includes("firecrawl"))) {
-      return "Set a valid FIRECRAWL_API_KEY in Supabase and try again.";
-    }
-    if (name === "smartops" && d.includes("no companyid")) {
-      return "Add your Company ID in Settings and re-run.";
+    if (d.includes("incorrect api key") || d.includes("openai") || d.includes("provider") || d.includes("model")) {
+      return "Set a valid AI provider/key in InvoiceSmart settings and try again.";
     }
     if (d.includes("jwt") || d.includes("401")) {
       return "Please sign in and re-run.";
     }
-    return "Check function logs for details.";
+    if (name === "smartops" && d.includes("no companyid")) {
+      return "Add your Company ID in Settings and re-run.";
+    }
+    return "Check InvoiceSmart API logs for details.";
   }
 
   return (

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat } from "@/lib/invoicesmart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,18 +25,14 @@ export const AdvisorAgent: React.FC = () => {
     setMessages((m) => [...m, { role: "user", content: text }]);
     setBusy(true);
     try {
-      const { data, error } = await supabase.functions.invoke("advisor", {
-        body: {
-          message: text,
-          // You can pass lightweight context here as we expand: selected company / project, etc.
-          context: {}
-        },
-      });
-      if (error) throw error;
-      const reply = data?.reply || "I couldn’t generate advice right now.";
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "assistant", content: `Error: ${e?.message || "Unknown error"}` }]);
+      const history = messages
+        .filter((m) => m.content.trim().length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
+      const { reply } = await aiChat(text, history);
+      setMessages((m) => [...m, { role: "assistant", content: reply || "I couldn’t generate advice right now." }]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setMessages((m) => [...m, { role: "assistant", content: `Error: ${message}` }]);
     } finally {
       setBusy(false);
     }

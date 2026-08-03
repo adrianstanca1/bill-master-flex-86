@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat } from "@/lib/invoicesmart";
 
 type InvoiceRow = {
   number: string;
@@ -29,7 +29,9 @@ export default function AgentChat() {
   useEffect(() => {
     try {
       setInvoices(JSON.parse(localStorage.getItem(LS_KEY) || "[]"));
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -43,22 +45,15 @@ export default function AgentChat() {
     setMessages((m) => [...m, { role: "user", content: text }]);
     setBusy(true);
     try {
-      const { data, error } = await supabase.functions.invoke("agent", {
-        body: { message: text, invoices },
-      });
-      if (error) {
-        console.error(error);
-        setMessages((m) => [
-          ...m,
-          { role: "assistant", content: `Agent unavailable: ${error.message || "Function error"}. Please ensure AI keys are configured.` },
-        ]);
-        return;
-      }
+      const history = messages
+        .filter((m) => m.content.trim().length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
+      const { reply } = await aiChat(text, history);
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: (data as any)?.reply || "…" },
+        { role: "assistant", content: reply || "…" },
       ]);
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       setMessages((m) => [
         ...m,
@@ -105,7 +100,9 @@ export default function AgentChat() {
           onClick={() => {
             try {
               setInvoices(JSON.parse(localStorage.getItem(LS_KEY) || "[]"));
-            } catch {}
+            } catch {
+              /* ignore */
+            }
           }}
           title="Reload invoices from tracker"
         >

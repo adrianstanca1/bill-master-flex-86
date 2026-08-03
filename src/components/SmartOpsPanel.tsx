@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice } from "@/lib/invoicesmart";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function SmartOpsPanel() {
@@ -32,9 +32,10 @@ function ScanTab() {
     setLoading(true);
     setResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("smartops", { body: { companyId } });
-      if (error) throw error;
-      setResult(data);
+      const { reply } = await aiChat(
+        `Run an operational health scan for company ID ${companyId}. Identify cash-flow, VAT/CIS, and client concentration risks for a UK construction business.`
+      );
+      setResult({ summary: reply });
     } catch (e) {
       console.error(e);
       setResult({ error: "Failed to run SmartOps scan" });
@@ -70,9 +71,10 @@ function TenderSearchTab() {
     setLoading(true);
     setResults(null);
     try {
-      const { data, error } = await supabase.functions.invoke("tender-search", { body: { query, country, industry: "construction" } });
-      if (error) throw error;
-      setResults(data);
+      const { reply } = await aiChat(
+        `Find recent construction tenders matching "${query}" in ${country}. Return a list with title, URL, and deadline if available.`
+      );
+      setResults({ summary: reply });
     } catch (e) {
       console.error(e);
       setResults({ error: "Failed to search tenders" });
@@ -85,9 +87,10 @@ function TenderSearchTab() {
     setGovLoading(true);
     setGovResults(null);
     try {
-      const { data, error } = await supabase.functions.invoke("tenders", { body: { keyword: query, location: country } });
-      if (error) throw error;
-      setGovResults(data);
+      const { reply } = await aiChat(
+        `Find UK government construction tenders for "${query}" in ${country}. Return a list with title, URL, and deadline if available.`
+      );
+      setGovResults({ summary: reply });
     } catch (e) {
       console.error(e);
       setGovResults({ error: "Failed to fetch UK tenders" });
@@ -138,9 +141,10 @@ function QuoteTab() {
     setLoading(true);
     setQuote(null);
     try {
-      const { data, error } = await supabase.functions.invoke("quote-bot", { body: { title, withMaterials, targetMargin: margin/100 } });
-      if (error) throw error;
-      setQuote(data?.quote);
+      const { invoice } = await aiGenerateInvoice(
+        `Generate a UK construction quote titled "${title}" with materials ${withMaterials ? "included" : "excluded"} and a target margin of ${margin}%.`
+      );
+      setQuote(invoice);
     } catch (e) {
       console.error(e);
       setQuote({ error: "Failed to generate quote" });
@@ -181,9 +185,12 @@ function TaxTab() {
     setLoading(true);
     setAdvice("");
     try {
-      const { data, error } = await supabase.functions.invoke("tax-bot", { body: { turnover12m: turnover, vatScheme: scheme, reverseCharge, cis } });
-      if (error) throw error;
-      setAdvice((data as any)?.advice || "");
+      const res = await aiTaxAdvice();
+      setAdvice(
+        (res?.tips as string[])?.join("\n") ||
+        (res?.summary as string) ||
+        JSON.stringify(res, null, 2)
+      );
     } catch (e) {
       console.error(e);
       setAdvice("Failed to get tax advice");

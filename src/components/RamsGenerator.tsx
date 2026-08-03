@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat } from "@/lib/invoicesmart";
 import DOMPurify from "dompurify";
 
 export default function RamsGenerator() {
@@ -30,14 +30,14 @@ export default function RamsGenerator() {
     setLoading(true);
     setHtml("");
     try {
-      const { data, error } = await supabase.functions.invoke("rams", {
-        body: { project },
-      });
-      if (error) throw error;
-      setHtml(DOMPurify.sanitize((data as any)?.html || ""));
-    } catch (e: any) {
+      const { reply } = await aiChat(
+        `Generate a printable RAMS document (HTML body only) for a UK construction project: ${JSON.stringify(project)}. Include method statement, hazards, control measures, and PPE.`
+      );
+      setHtml(DOMPurify.sanitize(reply || ""));
+    } catch (e) {
       console.error(e);
-      const msg = e?.message?.includes("JWT") || e?.message?.includes("401") ? "Please sign in to use the RAMS generator." : "Failed to generate RAMS.";
+      const message = e instanceof Error ? e.message : "Failed to generate RAMS.";
+      const msg = message.includes("JWT") || message.includes("401") ? "Please sign in to use the RAMS generator." : message;
       setHtml(`<p>${msg}</p>`);
     } finally {
       setLoading(false);

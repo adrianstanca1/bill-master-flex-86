@@ -443,20 +443,22 @@ export async function updateUserProfile(user: Partial<AuthUser>): Promise<AuthUs
 export async function aiChat(
   message: string,
   messages?: { role: string; content: string }[]
-): Promise<{ reply?: string }> {
-  return apiFetch<{ reply?: string }>("/api/ai/chat", {
+): Promise<{ reply: string; provider?: string; model?: string }> {
+  const res = await apiFetch<{ response: string; provider?: string; model?: string }>("/api/ai/chat", {
     method: "POST",
     body: JSON.stringify({ message, messages }),
   });
+  return { reply: res.response || "", provider: res.provider, model: res.model };
 }
 
 export async function aiGenerateInvoice(
   description: string
-): Promise<Record<string, unknown>> {
-  return apiFetch<Record<string, unknown>>("/api/ai/generate-invoice", {
+): Promise<{ invoice?: Record<string, unknown>; provider?: string; model?: string }> {
+  const res = await apiFetch<{ invoice: Record<string, unknown>; provider?: string; model?: string }>("/api/ai/generate-invoice", {
     method: "POST",
     body: JSON.stringify({ description }),
   });
+  return { invoice: res.invoice, provider: res.provider, model: res.model };
 }
 
 export async function aiWhoOwesMe(): Promise<Record<string, unknown>> {

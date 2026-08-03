@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { aiChat } from "@/lib/invoicesmart";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function TenderBot() {
@@ -26,16 +26,16 @@ export default function TenderBot() {
     setLoading(true);
     setResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("tenderbot", {
-        body: { url, mode, limit: 50 },
-      });
-      if (error) throw error;
-      setResult(data);
+      const { reply } = await aiChat(
+        `TenderBot: ${mode} the page at ${url} and extract construction tender opportunities. Return a JSON-like list with title, url, and deadline.`
+      );
+      setResult({ summary: reply });
       toast({ title: "TenderBot finished", description: "Results loaded below." });
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       setResult({ error: "Failed to run TenderBot" });
-      toast({ title: "TenderBot failed", description: e?.message || "Could not complete the request.", variant: "destructive" });
+      const message = e instanceof Error ? e.message : "Could not complete the request.";
+      toast({ title: "TenderBot failed", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -52,7 +52,7 @@ export default function TenderBot() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <select className="input" value={mode} onChange={(e) => setMode(e.target.value as any)}>
+        <select className="input" value={mode} onChange={(e) => setMode(e.target.value as "crawl" | "scrape")}>
           <option value="crawl">Crawl (site-wide)</option>
           <option value="scrape">Scrape (single page)</option>
         </select>
