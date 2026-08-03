@@ -7,7 +7,17 @@ import FunctionDiagnostics from "@/components/FunctionDiagnostics";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { listInvoices, listClients, markInvoicePaid, aiChat, Invoice } from "@/lib/invoicesmart";
+import {
+  listInvoices,
+  listClients,
+  markInvoicePaid,
+  aiChat,
+  getDashboardReport,
+  aiSummarizePL,
+  getReportExportUrl,
+  getInvoicePdfUrl,
+  Invoice,
+} from "@/lib/invoicesmart";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { Link } from "react-router-dom";
@@ -60,6 +70,33 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<string>("");
   const numberInputRef = useRef<HTMLInputElement>(null);
 
+  const [report, setReport] = useState<Record<string, number | string | unknown> | null>(null);
+  const [plSummary, setPlSummary] = useState<Record<string, unknown> | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReports() {
+      setReportLoading(true);
+      try {
+        const [dash, pl] = await Promise.all([
+          getDashboardReport(),
+          aiSummarizePL(),
+        ]);
+        if (cancelled) return;
+        setReport(dash);
+        setPlSummary(pl);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setReportLoading(false);
+      }
+    }
+    loadReports();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,7 +309,7 @@ function remindAllOverdue() {
   const defaultTab = (() => {
     if (typeof window === "undefined") return "overview";
     const h = window.location.hash.replace('#', '');
-    const allowed = new Set(["overview", "invoices", "ai", "smartops", "tenders", "rams", "tools", "diag"]);
+    const allowed = new Set(["overview", "invoices", "ai", "smartops", "tenders", "rams", "tools", "diag", "reports"]);
     return allowed.has(h) ? h : "overview";
   })();
 
@@ -353,6 +390,7 @@ function remindAllOverdue() {
           <TabsTrigger value="rams">RAMS</TabsTrigger>
           <TabsTrigger value="tools">Tools</TabsTrigger>
           <TabsTrigger value="diag">Diagnostics</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -481,6 +519,9 @@ function remindAllOverdue() {
                       {r.status}
                     </td>
                       <td className="text-right flex gap-2 justify-end">
+                        {r.id && (
+                          <a className="button-secondary" href={getInvoicePdfUrl(r.id)} target="_blank" rel="noreferrer">PDF</a>
+                        )}
                         <button className="button-secondary" onClick={() => openReminder(i)}>
                           Remind
                         </button>
@@ -567,6 +608,49 @@ function remindAllOverdue() {
             <FunctionDiagnostics />
           </section>
         </TabsContent>
+
+        <TabsContent value="reports" className="space-y-4">
+          <section className="card animate-fade-in">
+            <h2 className="text-lg font-semibold mb-3">Business Reports</h2>
+            {reportLoading ? (
+              <p className="text-sm text-gray-300">Loading reports…</p>
+            ) : report ? (
+              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <KPITile label="Total Paid" value={`£${Number(report.totalPaid || 0).toFixed(2)}`} />
+                <KPITile label="Total Invoiced" value={`£${Number(report.totalInvoiced || 0).toFixed(2)}`} />
+                <KPITile label="Total Expenses" value={`£${Number(report.totalExpenses || 0).toFixed(2)}`} />
+                <KPITile label="Net Profit" value={`£${Number(report.netProfit || 0).toFixed(2)}`} />
+                <KPITile label="Invoices" value={`${report.invoiceCount || 0}`} />
+                <KPITile label="Clients" value={`${report.clientCount || 0}`} />
+                <KPITile label="Overdue" value={`${report.overdueCount || 0}`} />
+                <KPITile label="Outstanding" value={`£${Number(report.outstandingAmount || 0).toFixed(2)}`} />
+              </div>
+            ) : (
+              <p className="text-sm text-gray-300">No report data available.</p>
+            )}
+          </section>
+
+          <section className="card animate-fade-in">
+            <h2 className="text-lg font-semibold mb-3">AI Profit & Loss Summary</h2>
+            {plSummary ? (
+              <div className="text-sm text-gray-300 space-y-2 whitespace-pre-wrap">
+                {(plSummary.summary as string) || JSON.stringify(plSummary, null, 2)}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-300">No P&L summary available.</p>
+            )}
+          </section>
+
+          <section className="card animate-fade-in">
+            <h2 className="text-lg font-semibold mb-3">Export</h2>
+            <div className="flex flex-wrap gap-2">
+              <a className="button-secondary" href={getReportExportUrl("profit-loss")} target="_blank" rel="noreferrer">Download P&L CSV</a>
+              <a className="button-secondary" href={getReportExportUrl("revenue")} target="_blank" rel="noreferrer">Download Revenue CSV</a>
+              <a className="button-secondary" href={getReportExportUrl("expenses")} target="_blank" rel="noreferrer">Download Expenses CSV</a>
+            </div>
+          </section>
+        </TabsContent>
+
         <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
           <DialogContent>
             <DialogHeader>

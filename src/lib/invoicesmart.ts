@@ -402,6 +402,37 @@ export async function getReportsSummary(): Promise<Record<string, unknown>> {
   return apiFetch<Record<string, unknown>>("/api/reports/summary");
 }
 
+export async function getTopExpenses(
+  start?: string,
+  end?: string
+): Promise<Record<string, unknown>[]> {
+  const qs = start && end ? `?start=${start}&end=${end}` : "";
+  return apiFetch<Record<string, unknown>[]>(`/api/reports/top-expenses${qs}`);
+}
+
+export async function getTaxEstimate(
+  start?: string,
+  end?: string
+): Promise<Record<string, unknown>> {
+  const qs = start && end ? `?start=${start}&end=${end}` : "";
+  return apiFetch<Record<string, unknown>>(`/api/reports/tax-estimate${qs}`);
+}
+
+export function getReportExportUrl(
+  type: "profit-loss" | "revenue" | "expenses",
+  start?: string,
+  end?: string
+): string {
+  const params = new URLSearchParams({ type });
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  return `${API_BASE_URL}/api/reports/export?${params.toString()}`;
+}
+
+export function getInvoicePdfUrl(id: string): string {
+  return `${API_BASE_URL}/api/invoices/${id}/pdf`;
+}
+
 // ── Settings / Profile ─────────────────────────────────────────────────────
 
 export interface UserSettings {

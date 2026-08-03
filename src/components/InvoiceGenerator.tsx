@@ -174,9 +174,10 @@ async function handleSaveBackend() {
     });
 
     toast({ title: "Invoice saved", description: `Invoice saved — ${invoice.invoice_number}` });
-  } catch (e: any) {
+  } catch (e) {
     console.error(e);
-    toast({ title: "Failed to save invoice", description: e?.message || String(e), variant: "destructive" });
+    const message = e instanceof Error ? e.message : String(e);
+    toast({ title: "Failed to save invoice", description: message, variant: "destructive" });
   }
 }
 
