@@ -1,29 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import SEO from "@/components/SEO";
-import { listClients, createClient, getStoredUser } from "@/lib/invoicesmart";
+import {
+  listClients,
+  createClient,
+  getStoredUser,
+  getSettings,
+  listProjects,
+  createProject,
+  Project,
+  Client,
+} from "@/lib/invoicesmart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-
-const PROJECTS_KEY = "as-projects";
-
-interface Client {
-  id: string;
-  user_id: string;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  address?: Record<string, unknown> | null;
-}
-
-interface Project {
-  id: string;
-  companyId?: string | null;
-  name: string;
-  client?: string | null;
-  location?: string | null;
-}
 
 const CRM: React.FC = () => {
   const { toast } = useToast();
@@ -36,10 +26,14 @@ const CRM: React.FC = () => {
 
   useEffect(() => {
     const user = getStoredUser();
-    if (user) {
-      setCompanyId(user.id);
-      setCompanyName(user.company_name || null);
-    }
+    const fallback = user?.id || null;
+    setCompanyName(user?.company_name || null);
+    getSettings()
+      .then((s) => {
+        const id = (s as Record<string, unknown>)?.companyId;
+        setCompanyId(typeof id === "string" && id ? id : fallback);
+      })
+      .catch(() => setCompanyId(fallback));
   }, []);
 
   useEffect(() => {
@@ -56,9 +50,8 @@ const CRM: React.FC = () => {
         });
       }
       try {
-        const raw = localStorage.getItem(PROJECTS_KEY);
-        const all: Project[] = raw ? JSON.parse(raw) : [];
-        setProjects(all.filter((p) => p.companyId === companyId));
+        const ps = await listProjects();
+        setProjects(ps);
       } catch (err) {
         toast({
           title: "Could not load projects",
@@ -90,20 +83,23 @@ const CRM: React.FC = () => {
     }
   };
 
-  const saveProject = () => {
+  const saveProject = async () => {
     if (!companyId || !newProject.name.trim()) return;
-    const project: Project = {
-      id: crypto.randomUUID(),
-      companyId,
-      name: newProject.name.trim(),
-      client: newProject.client || null,
-      location: newProject.location || null,
-    };
+    const clientName = newProject.client.trim() || null;
+    let clientId: string | null = null;
+    if (clientName) {
+      const match = clients.find(
+        (c) => c.name.localeCompare(clientName, undefined, { sensitivity: "base" }) === 0
+      );
+      if (match) clientId = match.id;
+    }
     try {
-      const raw = localStorage.getItem(PROJECTS_KEY);
-      const all: Project[] = raw ? JSON.parse(raw) : [];
-      const next = [project, ...all];
-      localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
+      const project = await createProject({
+        name: newProject.name.trim(),
+        client_name: clientName,
+        client_id: clientId,
+        location: newProject.location || null,
+      });
       setProjects([project, ...projects]);
       setNewProject({ name: "", client: "", location: "" });
       toast({ title: "Project added", description: "Project saved successfully" });
@@ -169,7 +165,7 @@ const CRM: React.FC = () => {
                 <li key={p.id} className="flex items-center justify-between border rounded-md p-3">
                   <div>
                     <div className="font-medium">{p.name}</div>
-                    <div className="text-sm text-muted-foreground">{p.client || "No client"} {p.location ? `• ${p.location}` : ""}</div>
+                    <div className="text-sm text-muted-foreground">{p.client_name || "No client"} {p.location ? `• ${p.location}` : ""}</div>
                   </div>
                 </li>
               ))}

@@ -504,3 +504,267 @@ export async function aiTaxAdvice(): Promise<Record<string, unknown>> {
 export async function aiSummarizePL(): Promise<Record<string, unknown>> {
   return apiFetch<Record<string, unknown>>("/api/ai/summarize-pl");
 }
+
+// ── Projects ─────────────────────────────────────────────────────────────────
+
+export interface Project {
+  id: string;
+  user_id: string;
+  client_id?: string | null;
+  name: string;
+  client_name?: string | null;
+  location?: string | null;
+  description?: string | null;
+  status?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProjectInput {
+  name: string;
+  client_id?: string | null;
+  client_name?: string | null;
+  location?: string | null;
+  description?: string | null;
+  status?: string | null;
+}
+
+export interface ProjectListResponse {
+  data: Project[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listProjects(): Promise<Project[]> {
+  const res = await apiFetch<ProjectListResponse>("/api/projects");
+  return res.data || [];
+}
+
+export async function getProject(id: string): Promise<Project> {
+  return apiFetch<Project>(`/api/projects/${id}`);
+}
+
+export async function createProject(input: ProjectInput): Promise<Project> {
+  return apiFetch<Project>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateProject(
+  id: string,
+  input: ProjectInput
+): Promise<Project> {
+  return apiFetch<Project>(`/api/projects/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  return apiFetch<void>(`/api/projects/${id}`, { method: "DELETE" });
+}
+
+// ── Variations ─────────────────────────────────────────────────────────────
+
+export interface VariationItem {
+  description?: string;
+  quantity?: number;
+  unit_price?: number;
+}
+
+export interface Variation {
+  id: string;
+  user_id: string;
+  project_id: string;
+  title: string;
+  description?: string | null;
+  items?: VariationItem[];
+  total: number | string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface VariationInput {
+  project_id: string;
+  title: string;
+  description?: string | null;
+  items?: VariationItem[];
+  status?: string;
+}
+
+export interface VariationListResponse {
+  data: Variation[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listVariations(
+  projectId?: string,
+  status?: string
+): Promise<Variation[]> {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  if (status) params.set("status", status);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  const res = await apiFetch<VariationListResponse>(`/api/variations${qs}`);
+  return res.data || [];
+}
+
+export async function getVariation(id: string): Promise<Variation> {
+  return apiFetch<Variation>(`/api/variations/${id}`);
+}
+
+export async function createVariation(input: VariationInput): Promise<Variation> {
+  return apiFetch<Variation>("/api/variations", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateVariation(
+  id: string,
+  input: VariationInput
+): Promise<Variation> {
+  return apiFetch<Variation>(`/api/variations/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteVariation(id: string): Promise<void> {
+  return apiFetch<void>(`/api/variations/${id}`, { method: "DELETE" });
+}
+
+export async function approveVariation(id: string): Promise<Variation> {
+  return apiFetch<Variation>(`/api/variations/${id}/approve`, { method: "POST" });
+}
+
+export async function convertVariationToInvoice(
+  id: string,
+  options?: {
+    tax_rate?: number;
+    discount_rate?: number;
+    retention_rate?: number;
+    cis_rate?: number;
+    issue_date?: string;
+    due_date?: string;
+    notes?: string;
+    terms?: string;
+    prefix?: string;
+  }
+): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/variations/${id}/convert-to-invoice`, {
+    method: "POST",
+    body: JSON.stringify(options || {}),
+  });
+}
+
+// ── Quotes ─────────────────────────────────────────────────────────────────
+
+export interface QuoteLineItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount?: number;
+  sort_order?: number;
+}
+
+export type QuoteStatus = "draft" | "sent" | "accepted" | string;
+
+export interface Quote {
+  id: string;
+  user_id: string;
+  client_id?: string | null;
+  quote_number: string;
+  title: string;
+  status: QuoteStatus;
+  issue_date?: string | null;
+  expiry_date?: string | null;
+  sent_at?: string | null;
+  accepted_at?: string | null;
+  subtotal: number | string;
+  total: number | string;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  items: QuoteLineItem[];
+}
+
+export interface QuoteInput {
+  client_id?: string | null;
+  title: string;
+  status?: QuoteStatus;
+  items?: QuoteLineItem[];
+  notes?: string | null;
+  issue_date?: string | null;
+  expiry_date?: string | null;
+  quote_prefix?: string;
+  auto_increment?: boolean;
+}
+
+export interface QuoteListResponse {
+  data: Quote[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listQuotes(status?: string): Promise<Quote[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await apiFetch<QuoteListResponse>(`/api/quotes${qs}`);
+  return res.data || [];
+}
+
+export async function getQuote(id: string): Promise<Quote> {
+  return apiFetch<Quote>(`/api/quotes/${id}`);
+}
+
+export async function createQuote(input: QuoteInput): Promise<Quote> {
+  return apiFetch<Quote>("/api/quotes", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateQuote(id: string, input: QuoteInput): Promise<Quote> {
+  return apiFetch<Quote>(`/api/quotes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  return apiFetch<void>(`/api/quotes/${id}`, { method: "DELETE" });
+}
+
+export async function sendQuote(
+  id: string
+): Promise<{ success: boolean; status: string; email?: { sent: boolean; messageId?: string; error?: string } }> {
+  return apiFetch<{ success: boolean; status: string; email?: { sent: boolean; messageId?: string; error?: string } }>(
+    `/api/quotes/${id}/send`,
+    { method: "POST" }
+  );
+}
+
+export async function convertQuoteToInvoice(
+  id: string,
+  options?: { invoice_prefix?: string; auto_increment?: boolean }
+): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/quotes/${id}/convert`, {
+    method: "POST",
+    body: JSON.stringify(options || {}),
+  });
+}

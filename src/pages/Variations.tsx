@@ -1,67 +1,75 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import SEO from "@/components/SEO";
-import { createTransaction } from "@/lib/invoicesmart";
+import {
+  listProjects,
+  listVariations,
+  createVariation,
+  deleteVariation,
+  approveVariation,
+  convertVariationToInvoice,
+  type Project,
+  type Variation,
+  type ApiError,
+} from "@/lib/invoicesmart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-
-const PROJECTS_KEY = "as-projects";
-const VARIATIONS_KEY = "as-variations";
-
-interface Project {
-  id: string;
-  name: string;
-  client: string;
-  location?: string;
-}
-
-interface Variation {
-  id: string;
-  projectId: string;
-  title: string;
-  total: number;
-  status: string;
-  createdAt: string;
-}
-
-function loadProjects(): Project[] {
-  try {
-    const raw = localStorage.getItem(PROJECTS_KEY);
-    return raw ? (JSON.parse(raw) as Project[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadVariations(): Variation[] {
-  try {
-    const raw = localStorage.getItem(VARIATIONS_KEY);
-    return raw ? (JSON.parse(raw) as Variation[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveVariations(items: Variation[]): void {
-  localStorage.setItem(VARIATIONS_KEY, JSON.stringify(items));
-}
-
-function makeId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-}
 
 const Variations: React.FC = () => {
   const { toast } = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
   const [variations, setVariations] = useState<Variation[]>([]);
+  const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ projectId: "", title: "", total: "" });
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const data = await listProjects();
+      setProjects(data);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Failed to load projects",
+        description: apiErr.message || "Could not fetch projects",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  const loadVariations = useCallback(async () => {
+    try {
+      const data = await listVariations();
+      setVariations(data);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Failed to load variations",
+        description: apiErr.message || "Could not fetch variations",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
   useEffect(() => {
-    setProjects(loadProjects());
-    setVariations(loadVariations());
-  }, []);
+    let mounted = true;
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([loadProjects(), loadVariations()]);
+      if (mounted) setLoading(false);
+    };
+    init();
+    return () => {
+      mounted = false;
+    };
+  }, [loadProjects, loadVariations]);
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -72,34 +80,73 @@ const Variations: React.FC = () => {
   const add = async () => {
     if (!form.projectId || !form.title.trim()) return;
     const total = Number(form.total || 0);
-    const variation: Variation = {
-      id: makeId(),
-      projectId: form.projectId,
-      title: form.title.trim(),
-      total,
-      status: "proposed",
-      createdAt: new Date().toISOString(),
-    };
-    const next = [variation, ...variations];
-    saveVariations(next);
-    setVariations(next);
-    setForm({ projectId: "", title: "", total: "" });
-
     try {
-      await createTransaction({
-        type: "expense",
-        amount: total,
-        description: variation.title,
+      await createVariation({
+        project_id: form.projectId,
+        title: form.title.trim(),
+        items: [
+          {
+            description: form.title.trim(),
+            quantity: 1,
+            unit_price: total,
+          },
+        ],
+        status: "proposed",
       });
+      setForm({ projectId: "", title: "", total: "" });
       toast({ title: "Variation created" });
+      await loadVariations();
     } catch (err) {
-      const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Could not sync expense to InvoiceSmart";
+      const apiErr = err as ApiError;
       toast({
-        title: "Variation created locally",
-        description: message,
+        title: "Could not create variation",
+        description: apiErr.message || "Request failed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleApprove = async (id: string) => {
+    try {
+      await approveVariation(id);
+      toast({ title: "Variation approved" });
+      await loadVariations();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Approval failed",
+        description: apiErr.message || "Could not approve variation",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConvert = async (id: string) => {
+    try {
+      await convertVariationToInvoice(id);
+      toast({ title: "Converted to invoice" });
+      await loadVariations();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Conversion failed",
+        description: apiErr.message || "Could not convert variation",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this variation?")) return;
+    try {
+      await deleteVariation(id);
+      toast({ title: "Variation deleted" });
+      await loadVariations();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      toast({
+        title: "Delete failed",
+        description: apiErr.message || "Could not delete variation",
         variant: "destructive",
       });
     }
@@ -140,6 +187,7 @@ const Variations: React.FC = () => {
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
+                    {p.client_name ? ` (${p.client_name})` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -157,7 +205,9 @@ const Variations: React.FC = () => {
               onChange={(e) => setForm((s) => ({ ...s, total: e.target.value }))}
             />
           </div>
-          <Button onClick={add}>Add Variation</Button>
+          <Button onClick={add} disabled={!form.projectId || !form.title.trim()}>
+            Add Variation
+          </Button>
         </CardContent>
       </Card>
 
@@ -167,6 +217,9 @@ const Variations: React.FC = () => {
             <CardTitle>All Variations</CardTitle>
           </CardHeader>
           <CardContent>
+            {loading && (
+              <div className="text-sm text-muted-foreground">Loading...</div>
+            )}
             <ul className="space-y-2">
               {variations.map((v) => (
                 <li
@@ -176,16 +229,46 @@ const Variations: React.FC = () => {
                   <div>
                     <div className="font-medium">{v.title}</div>
                     <div className="text-sm text-muted-foreground">
-                      £{(v.total ?? 0).toFixed(2)} •{" "}
-                      {new Date(v.createdAt).toLocaleDateString()} • {v.status}
-                      {projectNameById.get(v.projectId)
-                        ? ` • ${projectNameById.get(v.projectId)}`
+                      £{Number(v.total ?? 0).toFixed(2)} •{" "}
+                      {v.created_at
+                        ? new Date(v.created_at).toLocaleDateString()
+                        : "—"}{" "}
+                      • {v.status}
+                      {projectNameById.get(v.project_id)
+                        ? ` • ${projectNameById.get(v.project_id)}`
                         : ""}
                     </div>
                   </div>
+                  <div className="flex items-center gap-2">
+                    {v.status === "proposed" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleApprove(v.id)}
+                      >
+                        Approve
+                      </Button>
+                    )}
+                    {v.status !== "invoiced" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleConvert(v.id)}
+                      >
+                        Convert to Invoice
+                      </Button>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(v.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </li>
               ))}
-              {variations.length === 0 && (
+              {variations.length === 0 && !loading && (
                 <div className="text-sm text-muted-foreground">
                   No variations yet.
                 </div>

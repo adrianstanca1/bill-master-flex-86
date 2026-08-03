@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice, aiSummarizePL } from "@/lib/invoicesmart";
+import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice, aiSummarizePL, getSettings } from "@/lib/invoicesmart";
 
  type Result = { name: string; status: "OK" | "FAIL" | "SKIP"; detail?: string };
 
@@ -10,8 +10,14 @@ export default function FunctionDiagnostics() {
   async function run() {
     setLoading(true);
     setResults(null);
-    const settings = (() => { try { return JSON.parse(localStorage.getItem("as-settings")||"{}"); } catch { return {}; } })();
-    const companyId = settings?.companyId || "";
+    const localSettings = (() => { try { return JSON.parse(localStorage.getItem("as-settings") || "{}") as Record<string, unknown>; } catch { return {}; } })();
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = (await getSettings()) as Record<string, unknown>;
+    } catch {
+      settings = {};
+    }
+    const companyId = typeof settings.companyId === "string" ? settings.companyId : String(localSettings?.companyId || "");
 
     async function call(name: string, fn: () => Promise<Record<string, unknown> | { reply: string }>): Promise<Result> {
       try {

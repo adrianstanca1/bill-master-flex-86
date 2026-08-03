@@ -1,8 +1,10 @@
 // Auth compatibility shim for the InvoiceSmart Express backend.
 // The original app used Supabase auth; this file preserves the import path and
 // exposes a minimal supabase.auth API backed by the local InvoiceSmart API.
-// All other Supabase features (database, edge functions, storage) are stubbed
-// and will be replaced in later integration phases.
+// Data tables that now have real InvoiceSmart endpoints (clients, projects,
+// quotes, variations) are no longer stubbed; calling them throws so code
+// migrates to @/lib/invoicesmart. Remaining Supabase surfaces (storage,
+// realtime, edge functions, and any other tables) are still stubbed.
 
 import {
   getToken,
@@ -130,23 +132,39 @@ const auth = {
   },
 };
 
-// Stub for non-auth Supabase surfaces. These are used by data/edge-function code
-// that will be migrated in Phase 2/3. Returning empty results lets existing
-// components render gracefully instead of crashing on import.
+// Tables that now have real InvoiceSmart REST endpoints. These stubs are removed
+// so any remaining Supabase-form calls fail loudly instead of silently returning
+// empty data that masks missing integration.
+const SHADOWED_TABLES = new Set(["clients", "projects", "quotes", "variations"]);
+
+function removedTableError(table: string): never {
+  throw new Error(
+    `Supabase table "${table}" is no longer available; use the InvoiceSmart API from @/lib/invoicesmart instead.`
+  );
+}
+
+// Stub for remaining non-auth Supabase surfaces (storage, realtime, edge
+// functions, and any tables not yet migrated). Returning empty results lets
+// components that still import these surfaces render gracefully.
 const stubData = {
-  from: () => ({
-    select: () => ({
-      eq: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
-      order: () => Promise.resolve({ data: [], error: null }),
-    }),
-    insert: () => ({
+  from: (table: string) => {
+    if (SHADOWED_TABLES.has(table)) {
+      return removedTableError(table);
+    }
+    return {
       select: () => ({
-        single: () => Promise.resolve({ data: null, error: null }),
+        eq: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
+        order: () => Promise.resolve({ data: [], error: null }),
       }),
-    }),
-    update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
-    delete: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
-  }),
+      insert: () => ({
+        select: () => ({
+          single: () => Promise.resolve({ data: null, error: null }),
+        }),
+      }),
+      update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+      delete: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+    };
+  },
   rpc: () => Promise.resolve({ data: null, error: null }),
 };
 
@@ -154,8 +172,9 @@ const stubFunctions = {
   invoke: () => Promise.resolve({ data: null, error: null }),
 };
 
-// Minimal Supabase-like client. The auth property is real; everything else is a
-// stub that silently returns empty results.
+// Minimal Supabase-like client. The auth property is real. Data tables that have
+// InvoiceSmart endpoints throw on access; remaining Supabase surfaces still
+// return empty stub results.
 export const supabase = {
   auth,
   from: stubData.from,

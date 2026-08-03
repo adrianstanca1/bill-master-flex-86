@@ -1,6 +1,7 @@
-import React, { useState } from "react";
-import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice } from "@/lib/invoicesmart";
+import React, { useEffect, useState } from "react";
+import { aiChat, aiGenerateInvoice, aiWhoOwesMe, aiTaxAdvice, createQuote, getSettings } from "@/lib/invoicesmart";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 
 export default function SmartOpsPanel() {
   return (
@@ -23,9 +24,19 @@ export default function SmartOpsPanel() {
 }
 
 function ScanTab() {
-  const [companyId, setCompanyId] = useState(() => { try { return (JSON.parse(localStorage.getItem("as-settings")||"{}")?.companyId) || ""; } catch { return ""; } }); // TODO: replace with real company selection after onboarding
+  const [companyId, setCompanyId] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    const fallback = (() => { try { return (JSON.parse(localStorage.getItem("as-settings") || "{}")?.companyId) || ""; } catch { return ""; } })();
+    getSettings()
+      .then((s) => {
+        const id = (s as Record<string, unknown>)?.companyId;
+        setCompanyId(typeof id === "string" ? id : fallback);
+      })
+      .catch(() => setCompanyId(fallback));
+  }, []);
 
   async function runScan() {
     if (!companyId) return alert("Enter company ID (temporary)");
@@ -131,15 +142,18 @@ function TenderSearchTab() {
 }
 
 function QuoteTab() {
+  const { toast } = useToast();
   const [title, setTitle] = useState("Small refurb job");
   const [withMaterials, setWithMaterials] = useState(true);
   const [margin, setMargin] = useState(() => { try { return Number(JSON.parse(localStorage.getItem("as-settings")||"{}")?.targetMargin ?? 20); } catch { return 20; } });
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<any>(null);
+  const [persisted, setPersisted] = useState(false);
 
   async function generate() {
     setLoading(true);
     setQuote(null);
+    setPersisted(false);
     try {
       const { invoice } = await aiGenerateInvoice(
         `Generate a UK construction quote titled "${title}" with materials ${withMaterials ? "included" : "excluded"} and a target margin of ${margin}%.`
@@ -153,17 +167,47 @@ function QuoteTab() {
     }
   }
 
+  async function saveQuote() {
+    if (!quote || quote.error) return;
+    try {
+      const items = Array.isArray(quote.items)
+        ? quote.items.map((it: any) => ({
+            description: String(it.description || ""),
+            quantity: Number(it.quantity ?? 1),
+            unit_price: Number(it.unit_price ?? it.unitPrice ?? 0),
+          }))
+        : [];
+      const saved = await createQuote({
+        title: String(quote.title || title),
+        notes: quote.notes ? String(quote.notes) : null,
+        issue_date: quote.issueDate ? String(quote.issueDate) : null,
+        items,
+      });
+      setQuote(saved);
+      setPersisted(true);
+      toast({ title: "Quote saved to InvoiceSmart" });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Failed to save quote", variant: "destructive" });
+    }
+  }
+
   return (
     <div className="grid gap-2">
       <div className="grid md:grid-cols-4 gap-2">
         <input className="input md:col-span-2" placeholder="Quote title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <select className="input" value={withMaterials ? "yes" : "no"} onChange={(e) => setWithMaterials(e.target.value === "yes")}> 
+        <select className="input" value={withMaterials ? "yes" : "no"} onChange={(e) => setWithMaterials(e.target.value === "yes")}>
           <option value="yes">With materials</option>
           <option value="no">Without materials</option>
         </select>
         <input className="input" type="number" min={0} max={90} value={margin} onChange={(e) => setMargin(Number(e.target.value))} placeholder="Margin %" />
       </div>
-      <button className="button w-fit" onClick={generate} disabled={loading}>{loading ? "Generating…" : "Generate Quote"}</button>
+      <div className="flex gap-2">
+        <button className="button w-fit" onClick={generate} disabled={loading}>{loading ? "Generating…" : "Generate Quote"}</button>
+        {quote && !quote.error && !persisted && (
+          <button className="button-secondary w-fit" onClick={saveQuote} disabled={loading}>Save Quote</button>
+        )}
+      </div>
       {quote && (
         <div className="bg-gray-900 rounded-md p-3 overflow-auto">
           <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(quote, null, 2)}</pre>

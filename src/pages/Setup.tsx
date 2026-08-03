@@ -1,9 +1,36 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { applyUserTheme, loadTheme, saveTheme, ThemePreset, ThemeSettings } from "@/lib/theme";
-import { updateUserProfile } from "@/lib/invoicesmart";
+import { getSettings, updateSettings, updateUserProfile } from "@/lib/invoicesmart";
 import SEO from "@/components/SEO";
 
 const LS = "as-settings";
+
+function mergeBackendSettings(settings: Record<string, unknown>, data: SettingsData): SettingsData {
+  const next: SettingsData = { ...data };
+  const raw = settings;
+  if (raw.companyId !== undefined && raw.companyId !== null) next.companyId = String(raw.companyId);
+  if (raw.companyName !== undefined && raw.companyName !== null) next.companyName = String(raw.companyName);
+  if (raw.vatNumber !== undefined && raw.vatNumber !== null) next.vatNumber = String(raw.vatNumber);
+  if (raw.phone !== undefined && raw.phone !== null) next.phone = String(raw.phone);
+  if (raw.country !== undefined && raw.country !== null) next.country = String(raw.country);
+  if (raw.industry !== undefined && raw.industry !== null) next.industry = String(raw.industry);
+  if (raw.contactEmail !== undefined && raw.contactEmail !== null) next.contactEmail = String(raw.contactEmail);
+  if (raw.website !== undefined && raw.website !== null) next.website = String(raw.website);
+  if (raw.targetMargin !== undefined && raw.targetMargin !== null) next.targetMargin = Number(raw.targetMargin);
+  if (raw.vatScheme === "standard" || raw.vatScheme === "flat-rate" || raw.vatScheme === "cash-accounting") next.vatScheme = raw.vatScheme;
+  if (raw.reverseCharge !== undefined && raw.reverseCharge !== null) next.reverseCharge = Boolean(raw.reverseCharge);
+  if (raw.cis !== undefined && raw.cis !== null) next.cis = Boolean(raw.cis);
+  if (raw.address !== undefined && raw.address !== null) {
+    if (typeof raw.address === "string") {
+      next.address = raw.address;
+    } else if (typeof raw.address === "object") {
+      const rawAddress = raw.address as Record<string, unknown>;
+      if (rawAddress.raw !== undefined) next.address = String(rawAddress.raw);
+      else next.address = JSON.stringify(raw.address);
+    }
+  }
+  return next;
+}
 
 type SettingsData = {
   companyId?: string;
@@ -48,10 +75,13 @@ export default function Setup() {
     // Load existing settings only
     try {
       const raw = localStorage.getItem(LS);
-      if (raw) setData({ ...defaults, ...(JSON.parse(raw) as SettingsData) });
+      if (raw) setData((prev) => mergeBackendSettings({}, { ...defaults, ...(JSON.parse(raw) as SettingsData) }));
     } catch {
       /* ignore malformed localStorage values */
     }
+    getSettings()
+      .then((s) => setData((prev) => mergeBackendSettings((s as Record<string, unknown>) || {}, prev)))
+      .catch((e) => console.warn("Could not load backend settings", e));
   }, []);
 
   const presets: { key: ThemePreset; name: string }[] = useMemo(
@@ -93,6 +123,25 @@ export default function Setup() {
     } catch (e) {
       // Non-fatal: local settings are already saved.
       console.warn("Profile sync failed", e);
+    }
+    try {
+      await updateSettings({
+        companyId: data.companyId,
+        companyName: data.companyName,
+        vatNumber: data.vatNumber,
+        phone: data.phone,
+        address: data.address ? { raw: data.address } : null,
+        country: data.country,
+        industry: data.industry,
+        targetMargin: data.targetMargin,
+        vatScheme: data.vatScheme,
+        reverseCharge: data.reverseCharge,
+        cis: data.cis,
+        contactEmail: data.contactEmail,
+        website: data.website,
+      });
+    } catch (e) {
+      console.warn("Settings sync failed", e);
     }
     setTimeout(() => setSaving(false), 600);
   }

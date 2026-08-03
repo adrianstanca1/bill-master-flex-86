@@ -19,6 +19,8 @@ type SettingsData = {
   vatScheme?: "standard" | "flat-rate" | "cash-accounting";
   reverseCharge?: boolean;
   cis?: boolean;
+  contactEmail?: string;
+  website?: string;
 };
 
 const defaults: SettingsData = {
@@ -35,6 +37,33 @@ const defaults: SettingsData = {
   cis: true,
 };
 
+function mergeBackendSettings(settings: Record<string, unknown>, data: SettingsData): SettingsData {
+  const next: SettingsData = { ...data };
+  const raw = settings;
+  if (raw.companyId !== undefined && raw.companyId !== null) next.companyId = String(raw.companyId);
+  if (raw.companyName !== undefined && raw.companyName !== null) next.companyName = String(raw.companyName);
+  if (raw.vatNumber !== undefined && raw.vatNumber !== null) next.vatNumber = String(raw.vatNumber);
+  if (raw.phone !== undefined && raw.phone !== null) next.phone = String(raw.phone);
+  if (raw.country !== undefined && raw.country !== null) next.country = String(raw.country);
+  if (raw.industry !== undefined && raw.industry !== null) next.industry = String(raw.industry);
+  if (raw.contactEmail !== undefined && raw.contactEmail !== null) next.contactEmail = String(raw.contactEmail);
+  if (raw.website !== undefined && raw.website !== null) next.website = String(raw.website);
+  if (raw.targetMargin !== undefined && raw.targetMargin !== null) next.targetMargin = Number(raw.targetMargin);
+  if (raw.vatScheme === "standard" || raw.vatScheme === "flat-rate" || raw.vatScheme === "cash-accounting") next.vatScheme = raw.vatScheme;
+  if (raw.reverseCharge !== undefined && raw.reverseCharge !== null) next.reverseCharge = Boolean(raw.reverseCharge);
+  if (raw.cis !== undefined && raw.cis !== null) next.cis = Boolean(raw.cis);
+  if (raw.address !== undefined && raw.address !== null) {
+    if (typeof raw.address === "string") {
+      next.address = raw.address;
+    } else if (typeof raw.address === "object") {
+      const rawAddress = raw.address as Record<string, unknown>;
+      if (rawAddress.raw !== undefined) next.address = String(rawAddress.raw);
+      else next.address = JSON.stringify(raw.address);
+    }
+  }
+  return next;
+}
+
 export default function Settings() {
   const { toast } = useToast();
   const [data, setData] = useState<SettingsData>(defaults);
@@ -44,7 +73,7 @@ export default function Settings() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS);
-      if (raw) setData({ ...defaults, ...(JSON.parse(raw) as SettingsData) });
+      if (raw) setData((prev) => mergeBackendSettings({}, { ...defaults, ...(JSON.parse(raw) as SettingsData) }));
     } catch {
       /* ignore malformed localStorage values */
     }
@@ -52,7 +81,11 @@ export default function Settings() {
 
   useEffect(() => {
     getSettings()
-      .then((s) => setBackend(s || {}))
+      .then((s) => {
+        const settings = (s as Record<string, unknown>) || {};
+        setBackend(settings);
+        setData((prev) => mergeBackendSettings(settings, prev));
+      })
       .catch((e) => {
         console.warn("Could not load backend settings", e);
       });
@@ -74,16 +107,29 @@ export default function Settings() {
     }
 
     try {
-      const payload: Record<string, string | number | boolean | null | undefined> = {};
+      const payload: Record<string, string | number | boolean | null | undefined> = {
+        companyId: data.companyId,
+        companyName: data.companyName,
+        vatNumber: data.vatNumber,
+        phone: data.phone,
+        address: data.address ? { raw: data.address } : null,
+        country: data.country,
+        industry: data.industry,
+        targetMargin: data.targetMargin,
+        vatScheme: data.vatScheme,
+        reverseCharge: data.reverseCharge,
+        cis: data.cis,
+        contactEmail: data.contactEmail,
+        website: data.website,
+      };
       for (const [key, value] of Object.entries(backend)) {
         if (value === AI_API_KEY_MASK) continue; // don't send masked secrets back
         if (value !== undefined && value !== "") payload[key] = value;
       }
-      if (Object.keys(payload).length > 0) {
-        await updateSettings(payload);
-        const refreshed = await getSettings();
-        setBackend(refreshed || {});
-      }
+      await updateSettings(payload);
+      const refreshed = await getSettings();
+      setBackend(refreshed || {});
+      setData((prev) => mergeBackendSettings((refreshed as Record<string, unknown>) || {}, prev));
       toast({ title: "Settings saved" });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -111,6 +157,10 @@ export default function Settings() {
             onChange={(e) => setData({ ...data, phone: e.target.value })} />
           <input className="input" placeholder="Address" value={data.address}
             onChange={(e) => setData({ ...data, address: e.target.value })} />
+          <input className="input" type="email" placeholder="Contact email" value={data.contactEmail || ""}
+            onChange={(e) => setData({ ...data, contactEmail: e.target.value })} />
+          <input className="input" placeholder="Website" value={data.website || ""}
+            onChange={(e) => setData({ ...data, website: e.target.value })} />
           <input className="input" placeholder="Company ID" value={data.companyId}
             onChange={(e) => setData({ ...data, companyId: e.target.value })} />
           <input className="input" placeholder="Country" value={data.country}
